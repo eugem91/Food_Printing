@@ -1,0 +1,261 @@
+Created on Fri Apr 28 17:06:51 2017
+
+@author: Eugene
+"""
+
+import math
+
+#global Epos
+#Epos = 0
+
+global pos
+pos = [0,0,0,0] #pos [X,Y,Z,E]
+
+f = open ("TwoToneTestThin.gcode", "w+")
+
+def units():
+ #   f.write("G20\n") #Inches
+    f.write("G21\n") #Milimeters
+    
+def measurement():  #Relative or absolute
+    f.write("G90\n")  #Absolute
+#    f.write("G91\n")  #Relative
+    
+def startup():
+    f.write("M106 S200\n")
+    
+def zero():
+    f.write("G92 X0 Y0 E0\n")  #Sets all axes to zero
+    f.write("T0\n")
+    
+    
+def Eswitch(SwitchTo): #SwitchTo is the extruder (left or right) to switch to
+    if SwitchTo == "left":
+        f.write("G1 Z" + str(pos[2]+5) + "\n")
+        f.write("G1 X" + str(pos[0]+50) + "\n")
+        f.write("G1 Z" + str(pos[2]) + "\n")
+        f.write("T0\n")
+        pos[3]=pos[3]+0.2
+        f.write("G1 E" + str(pos[3]) + "\n")
+        
+    if SwitchTo == "right":
+        f.write("G1 Z" + str(pos[2]+5) + "\n")
+        f.write("G1 X" + str(pos[0]-50) + "\n")
+        f.write("G1 Z" + str(pos[2]) + "\n")
+        f.write("T1\n")
+        pos[3]=pos[3]+0.2
+        f.write("G1 E" + str(pos[3]) + "\n")
+        
+    
+def MaterialPretrace(material):
+        
+    if material == "jello":
+        extrusion = 0.5
+#        f.write("G1 X0 Y50 Z0 E0.25\n")
+#        f.write("G1 X0 Y0 Z0 E0.5\n")
+        f.write("G1 X70 Y70 Z0 E" + str(extrusion) + "\n")
+        pos[3]=pos[3]+extrusion
+        
+    if material == "cheesecake":
+        extrusion = 0.45
+        f.write("G1 X70 Y70 Z0 E" + str(extrusion) + "\n")
+        pos[3]=pos[3]+extrusion
+    
+def twister(cx, cy, vx, vy, angle): #rotates a vertex point about a center point by an angle theta (in radians)
+    xy = list()
+    
+    qx = cx + math.cos(angle) * (vx - cx) - math.sin(angle) * (vy - cy)
+    qy = cy + math.sin(angle) * (vx - cx) + math.cos(angle) * (vy - cy)
+    
+    xy.append(qx)
+    xy.append(qy)
+    
+    return xy
+    
+    
+def triangle(centerx, centery, radius, Z, E, Eoffset, theta): #theta = offset of start vertex from y-axis, in radians  
+    
+    t = theta
+    
+    cx = centerx
+    cy = centery
+    r = radius
+    
+    v1 = twister(cx, cy, cx+r, cy, t)
+#    print(v1)
+    v1x = v1[0]
+    v1y = v1[1]
+    v1.append(v1x)
+    v1.append(v1y)
+    
+    
+    v2 = twister(cx, cy, v1x, v1y, 2*math.pi/3)
+    v2x = v2[0]
+    v2y = v2[1]
+    
+    
+    
+    v3 = twister(cx, cy, v2x, v2y, 2*math.pi/3)
+    v3x = v3[0]
+    v3y = v3[1]
+    
+    f.write("G1 X"+ str(v1x) +" Y" + str(v1y) + " Z" + str(Z) + " E" + str(Eoffset) + "\n")
+    f.write("G1 X"+ str(v2x) +" Y" + str(v2y) + " Z" + str(Z) + " E" + str(E+Eoffset) + "\n")
+    f.write("G1 X"+ str(v3x) +" Y" + str(v3y) + " Z" + str(Z) + " E" + str(2*E+Eoffset) + "\n")
+    
+
+    
+    
+def ellipse(resolution, cx, cy, r1, r2, theta, z, Estart, Erate):  #Erate in mm/mm
+    
+    #res = math.pi/100 #resolution    
+    res = 2*math.pi/resolution
+    
+    i=0
+    Elist = []
+    Epos = 0
+    while i < resolution:
+         
+        x0 = r1*math.cos(res*i)+cx #complete when res*i = 2
+        y0 = r2*math.sin(res*i)+cy
+        
+        xp = r1*math.cos(res*(i+1))+cx
+        yp = r2*math.sin(res*(i+1))+cy
+        
+#        print(math.sin(res*i))
+        
+        xy = twister(cx,cy,x0,y0,theta)
+        
+        xyp = twister(cx,cy,xp,yp,theta)
+        
+        x = round(xy[0],4)
+        y = round(xy[1],4)
+        
+        xl = round(xyp[0],4)
+        yl = round(xyp[1],4)
+        
+        dx=abs(xl-x)
+        dy=abs(yl-y)
+    
+        Estep = Erate*math.sqrt(math.pow(dx,2)+math.pow(dy,2)) #Find the amount to increase E based on movement in x,y plane
+        Epos = Epos + Estep        
+        E = round(Estart + Epos,6)
+        
+        Elist.append(E)   
+        
+        pos[0]=x
+        pos[1]=y
+        pos[3]=E
+        
+        f.write("G1 X" + str(x) + " Y" + str(y) + " Z" + str(z) + " E" + str(E) + "\n")
+        
+        
+        if Elist[i]<Elist[i-1]:
+            print("Error at E position " + str(i))
+        
+        i=i+1        
+#    print(len(Elist))
+#    return E
+
+
+def cytracer():
+    thickness = 1    #1 for 1 layer, 2 for 2 layers
+    
+    height = 8
+#    f.write("G92 E0 \n")
+    Erate = 0.003   
+    Zstep = 0.8   
+    number = 12    
+    r1=20 #Original 16, 25
+    r1growth=r1/(4*number)  #original 2*number
+    r2=25 #Original 40, 40
+    r2growth=r2/(8*number) #original 4*number    
+    
+    z=0
+    Epos=pos[3]
+    n=0
+    while n < height:
+        z=n*Zstep
+        r1=20
+        r2=25
+        pos[2]=z
+        cx = 100
+        cy = 100
+
+        material = "cheesecake"        
+        
+        if n==2:
+            Eswitch("right")
+        
+        if n>=2 and n<6:
+            cx = 50 #Switch to right
+#            cx = 90 #Switch to left
+            material = "jello"
+            
+        if n==6:
+            Eswitch("left")            
+            
+        if n>=6 and n<7:
+            cx = 100
+            material="cheesecake"
+            
+        if n==7:
+            Eswitch("right")
+            
+        if n>=7:
+            cx = 50
+            material ="jello"
+    
+        i=1 
+        while i<=number:
+            
+            if material == "cheesecake":
+                Erate = 0.007
+                
+            if material == "jello":
+                Erate == 0.025
+            
+            theta = i*math.pi/number #original 6
+            
+            r1 = (r1-r1growth)#*TotalGrowth
+            r2 = (r2+r2growth)#*TotalGrowth            
+            
+            CxCy = twister(cx,cy,r1/6+cx,r2/6+cy,(2*math.pi/(number)*i))
+            cx = CxCy[0]
+            cy = CxCy[1]
+            
+#            Epos = ellipse(40,cx,cy,r1,r2,theta,z,Epos,Erate) 
+            Epos = pos[3]
+            ellipse(40,cx,cy,r1,r2,theta,z,Epos,Erate)
+
+            if thickness == 2:
+                Epos = pos[3]
+                r1p = r1+0.3
+                r2p = r2+0.3
+                ellipse(40,cx,cy,r1p,r2p,theta,z,Epos,Erate)
+            
+            i=i+1
+            
+        n=n+1
+        
+#    return Epos
+
+def returntest():
+    Epos = cytracer()
+    print(Epos)
+    
+def shutdown():
+    f.write("G1 Z" + str(pos[2]+5) + "\n")
+    f.write("G1 X0 Y0 Z0\n")
+    f.write("M84\n")
+    
+
+startup()
+units()
+measurement()
+zero()
+MaterialPretrace("jello")
+cytracer()
+shutdown()
+  
+f.close
